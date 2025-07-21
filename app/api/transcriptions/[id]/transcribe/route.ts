@@ -9,12 +9,6 @@ import path from 'path';
 
 export const dynamic = 'force-dynamic';
 
-export const config = {
-  api: {
-    bodyParser: false, // Deshabilitar el body parser de Next.js
-  },
-};
-
 // POST: Transcribir audio usando Whisper
 export async function POST(
   request: NextRequest,
