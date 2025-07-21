@@ -1,14 +1,32 @@
+import { prisma } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   try {
-    // Temporalmente deshabilitado para evitar problemas con Prisma
-    return NextResponse.json(
-      { error: 'Registro temporalmente deshabilitado' },
-      { status: 503 }
-    );
+    const { name, email, password, role } = await request.json();
+
+    // Validar datos requeridos
+    if (!email || !password || !name || !role) {
+      return NextResponse.json(
+        { error: 'Faltan datos requeridos' },
+        { status: 400 }
+      );
+    }
+
+    // Aquí podrías agregar la lógica para crear un nuevo usuario
+    // Por ejemplo, usando Prisma para interactuar con la base de datos
+    const user = await prisma.user.create({
+      data: {
+        name,
+        email,
+        password,
+        role,
+      },
+    });
+
+    return NextResponse.json({ message: 'Usuario creado exitosamente' }, { status: 201 });
   } catch (error) {
     return NextResponse.json(
       { error: 'Error interno del servidor' },

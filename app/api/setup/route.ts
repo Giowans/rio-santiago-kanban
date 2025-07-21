@@ -7,21 +7,6 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   try {
-    // Verificar si ya existe un administrador
-    const existingAdmin = await prisma.user.findFirst({
-      where: {
-        role: 'ADMIN',
-        isActive: true
-      }
-    });
-
-    if (existingAdmin) {
-      return NextResponse.json(
-        { error: 'Ya existe un administrador en el sistema' },
-        { status: 400 }
-      );
-    }
-
     const { name, email, password } = await request.json();
 
     // Validar datos requeridos
