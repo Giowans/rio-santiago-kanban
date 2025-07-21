@@ -1,13 +1,19 @@
 
 import { NextRequest, NextResponse } from 'next/server';
+import fs from 'fs';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/db';
-import { createAuditLog } from '@/lib/audit';
 import { readFile } from 'fs/promises';
 import path from 'path';
 
 export const dynamic = 'force-dynamic';
+
+export const config = {
+  api: {
+    bodyParser: false, // Deshabilitar el body parser de Next.js
+  },
+};
 
 // POST: Transcribir audio usando Whisper
 export async function POST(
@@ -68,129 +74,53 @@ export async function POST(
     const audioBuffer = await readFile(filePath);
     const base64String = audioBuffer.toString('base64');
 
-    // Preparar mensajes para la API de LLM
-    const messages = [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'file',
-            file: {
-              filename: transcription.originalName,
-              file_data: `data:${transcription.mimeType};base64,${base64String}`
-            }
-          },
-          {
-            type: 'text',
-            text: 'Por favor, transcribe el audio en este archivo. Proporciona únicamente el texto transcrito, sin comentarios adicionales.'
-          }
-        ]
-      }
-    ];
+    try {
+      // Prepara FormData para la API de OpenAI
+      const formData = new globalThis.FormData();
+      formData.append('file', new Blob([await fs.promises.readFile(filePath)]), transcription.filename);
+      formData.append('model', 'whisper-1');
 
-    // Llamar a la API de LLM usando streaming
-    const response = await fetch('https://apps.abacus.ai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.ABACUSAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: 'whisper-large-v3',
-        messages: messages,
-        stream: true,
-        max_tokens: 3000
-      })
-    });
-
-    if (!response.ok) {
-      await prisma.transcription.update({
-        where: { id: params.id },
-        data: { status: 'ERROR' }
+      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: formData,
       });
-      return NextResponse.json(
-        { error: 'Error al conectar con el servicio de transcripción' },
-        { status: 500 }
+
+      const data = await response.json();
+      console.log('Transcription response:', data);
+      if(data.text) {
+        // Actualizar transcripción en la base de datos
+        await prisma.transcription.update({
+          where: { id: params.id },
+          data: { transcriptText: data.text, status: 'COMPLETED' }
+        });
+      }
+
+      return new Response(
+        JSON.stringify({ transcript: data.text, fileDecoded: base64String }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache',
+          },
+        }
+      );
+    } catch (error) {
+      console.error(error);
+      return new Response(
+        JSON.stringify({ error: 'Error al consultar la API de transcripción' }),
+        {
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache',
+          },
+        }
       );
     }
-
-    const encoder = new TextEncoder();
-    const readable = new ReadableStream({
-      async start(controller) {
-        try {
-          const reader = response.body?.getReader();
-          if (!reader) {
-            controller.error('No se pudo obtener el stream');
-            return;
-          }
-
-          const decoder = new TextDecoder();
-          let buffer = '';
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n');
-
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                const data = line.slice(6);
-                if (data === '[DONE]') {
-                  // Guardar transcripción completa en la base de datos
-                  await prisma.transcription.update({
-                    where: { id: params.id },
-                    data: {
-                      transcriptText: buffer,
-                      status: 'COMPLETED'
-                    }
-                  });
-
-                  // Crear log de auditoría
-                  await createAuditLog({
-                    action: 'TRANSCRIBE_AUDIO',
-                    entity: 'transcription',
-                    entityId: params.id,
-                    userId: session.user.id
-                  });
-
-                  controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-                  controller.close();
-                  return;
-                }
-
-                try {
-                  const parsed = JSON.parse(data);
-                  const content = parsed.choices?.[0]?.delta?.content || '';
-                  if (content) {
-                    buffer += content;
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({content})}\n\n`));
-                  }
-                } catch (e) {
-                  // Skip invalid JSON
-                }
-              }
-            }
-          }
-        } catch (error) {
-          console.error('Streaming error:', error);
-          await prisma.transcription.update({
-            where: { id: params.id },
-            data: { status: 'ERROR' }
-          });
-          controller.error(error);
-        }
-      }
-    });
-
-    return new Response(readable, {
-      headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'Cache-Control': 'no-cache',
-      },
-    });
-
   } catch (error) {
     console.error('Error transcribing audio:', error);
     

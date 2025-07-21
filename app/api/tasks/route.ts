@@ -176,7 +176,7 @@ export async function POST(request: NextRequest) {
         programId,
         dueDate: dueDate ? new Date(dueDate) : null,
         expectedDeliverables,
-        links: links || null,
+        links: links.length > 0 ? links : null,
         status: status as any,
       },
       include: {

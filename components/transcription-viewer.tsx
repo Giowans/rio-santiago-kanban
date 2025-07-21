@@ -283,6 +283,7 @@ export function TranscriptionViewer({ transcription, onUpdate, onDelete }: Trans
   };
 
   const toggleAudio = () => {
+    console.log('audio', audio, 'isPlaying', isPlaying, transcription);
     if (!audio) {
       const audioElement = new Audio(transcription.audioUrl);
       audioElement.addEventListener('ended', () => setIsPlaying(false));
