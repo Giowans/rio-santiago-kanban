@@ -22,27 +22,6 @@ export default function SetupPage() {
   const [checkingSetup, setCheckingSetup] = useState(false);
   const router = useRouter();
 
-  useEffect(() => {
-    checkIfSetupNeeded();
-  }, []);
-
-  const checkIfSetupNeeded = async () => {
-    try {
-      const response = await fetch('/api/setup/check');
-      if (response.ok) {
-        const data = await response.json();
-        if (!data.needsSetup) {
-          router.replace('/login');
-          return;
-        }
-      }
-    } catch (error) {
-      console.error('Error checking setup status:', error);
-    } finally {
-      setCheckingSetup(false);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
